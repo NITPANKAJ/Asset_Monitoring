@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>JSDG Analysis Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="header">
+    <div class="header-row">
+      <div><h1>Asset Monitoring Dashboard</h1><p>Jheel Siding Coaching Depot</p></div>
+      <div class="spacer"></div>
+      <span class="user-badge" id="currentUser"></span>
+      <button class="btn secondary" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="nav">
+    <a href="analysis.html">Analysis Dashboard</a>
+    <a id="entryLink" href="data-entry.html">Data Entry</a>
+    <div class="spacer"></div>
+    <span id="syncStatus" class="sync-status">Loading...</span>
+    <button class="btn secondary" onclick="manualRefresh()">Refresh Data</button>
+  </div>
+
+  <main class="main">
+    <h2 class="page-title">Analysis Page</h2>
+
+    <div class="kpis">
+      <div class="kpi clickable" onclick="openDetailModal('All Records', filteredData)"><div class="v" id="kpiTotal">0</div><div class="l">Total Records</div></div>
+      <div class="kpi clickable" onclick="openGroupSummary('Train-wise Summary',1)"><div class="v" id="kpiTrains">0</div><div class="l">Trains</div></div>
+      <div class="kpi clickable" onclick="openGroupSummary('Rake-wise Summary',2)"><div class="v" id="kpiRakes">0</div><div class="l">Rakes</div></div>
+      <div class="kpi clickable" onclick="showOpenRecords()"><div class="v" id="kpiOpen">0</div><div class="l">Open / Pending</div></div>
+      <div class="kpi clickable" onclick="showClosedRecords()"><div class="v" id="kpiClosed">0</div><div class="l">Closed / Completed</div></div>
+    </div>
+
+    <div class="drill-note">Tip: click any KPI card or chart bar to see the related records.</div>
+
+    <div class="grid2">
+      <div class="panel"><h3>Present Status</h3><div class="chart"><canvas id="statusChart"></canvas></div></div>
+      <div class="panel"><h3>Rake-wise Records</h3><div class="chart"><canvas id="rakeChart"></canvas></div></div>
+      <div class="panel"><h3>Coach Type-wise Records</h3><div class="chart"><canvas id="coachChart"></canvas></div></div>
+      <div class="panel"><h3>Action Taken By</h3><div class="chart"><canvas id="actionChart"></canvas></div></div>
+    </div>
+
+    <div class="filters"><div class="filters-row">
+      <select id="fTrain" onchange="applyFilters()"><option value="">All Trains</option></select>
+      <select id="fRake" onchange="applyFilters()"><option value="">All Rakes</option></select>
+      <select id="fCoachType" onchange="applyFilters()"><option value="">All Coach Types</option></select>
+      <select id="fLocation" onchange="applyFilters()"><option value="">All Locations</option></select>
+      <select id="fStatus" onchange="applyFilters()"><option value="">All Status</option></select>
+      <select id="fActionBy" onchange="applyFilters()"><option value="">All Action Taken By</option></select>
+    </div></div>
+
+    <div class="table-title">
+      <h2>Read-only Records</h2>
+      <div class="spacer"></div>
+      <div class="search"><input id="searchBox" type="text" placeholder="Search..." oninput="applyFilters()"></div>
+    </div>
+
+    <div class="table-wrap"><table><thead><tr>
+      <th>SN</th><th>Train No</th><th>Rake No</th><th>Coach No</th><th>Coach Type</th><th>Coach No (2)</th><th>Location</th><th>POH Dt.</th><th>Return Date</th><th>IOH Dt.</th><th>Last Schedule Details</th><th>Cause of Defect</th><th>Action Taken</th><th>Action Taken By</th><th>Present Status</th><th>Remarks</th>
+    </tr></thead><tbody id="body"></tbody></table></div>
+  </main>
+
+  <div id="detailModal" class="modal-bg hidden">
+    <div class="modal detail-modal">
+      <div class="modal-head">
+        <h2 id="detailTitle">Record Details</h2>
+        <div class="spacer"></div>
+        <button class="btn secondary" onclick="closeDetailModal()">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-toolbar">
+          <strong>Records Found: <span id="detailCount">0</span></strong>
+          <div class="spacer"></div>
+          <input id="detailSearch" type="text" placeholder="Search these records..." oninput="renderDetailRows()">
+        </div>
+        <div id="groupSummary" class="group-summary hidden"></div>
+        <div class="table-wrap detail-table-wrap"><table><thead><tr>
+          <th>SN</th><th>Train No</th><th>Rake No</th><th>Coach No</th><th>Coach Type</th><th>Coach No (2)</th><th>Location</th><th>POH Dt.</th><th>Return Date</th><th>IOH Dt.</th><th>Last Schedule Details</th><th>Cause of Defect</th><th>Action Taken</th><th>Action Taken By</th><th>Present Status</th><th>Remarks</th>
+        </tr></thead><tbody id="detailBody"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    const user = requireRole(["analysis", "admin"]);
+    if (user && user.role === "analysis") document.getElementById("entryLink").style.display = "none";
+
+    let allData = [];
+    let filteredData = [];
+    let detailData = [];
+
+    function uniqueAt(i) {
+      return [...new Set(allData.map(r => clean(r[i])).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+
+    function fill(id, label, vals) {
+      const el = document.getElementById(id);
+      const selected = el.value;
+      el.innerHTML = `<option value="">${label}</option>` + vals.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+      if (vals.includes(selected)) el.value = selected;
+    }
+
+    function populate() {
+      fill("fTrain", "All Trains", uniqueAt(1));
+      fill("fRake", "All Rakes", uniqueAt(2));
+      fill("fCoachType", "All Coach Types", uniqueAt(4));
+      fill("fLocation", "All Locations", uniqueAt(6));
+      fill("fStatus", "All Status", uniqueAt(14));
+      fill("fActionBy", "All Action Taken By", uniqueAt(13));
+    }
+
+    function setSync(text, state = "") {
+      const el = document.getElementById("syncStatus");
+      el.textContent = text;
+      el.className = `sync-status ${state}`;
+    }
+
+    async function loadDashboard() {
+      const cached = getCachedData();
+      if (cached.length) {
+        allData = cached.map(x => x.data);
+        populate();
+        applyFilters();
+        setSync(`Cached data shown • ${getCacheAgeText()}`, "cached");
+        refreshFromGoogle();
+        return;
+      }
+
+      document.getElementById("body").innerHTML = '<tr><td colspan="16" class="empty">Loading Google Sheet data...</td></tr>';
+      setSync("Connecting to Google Sheet...", "working");
+      try {
+        const items = await apiGetData(true);
+        allData = items.map(x => x.data);
+        populate();
+        applyFilters();
+        setSync("Google Sheet synchronized", "ok");
+      } catch (err) {
+        document.getElementById("body").innerHTML = `<tr><td colspan="16" class="empty">Could not load Google Sheet: ${esc(err.message)}</td></tr>`;
+        setSync("Connection failed", "error");
+      }
+    }
+
+    async function refreshFromGoogle() {
+      setSync("Checking Google Sheet...", "working");
+      const items = await apiRefreshData();
+      if (!items) {
+        setSync("Offline • cached data shown", "error");
+        return;
+      }
+      allData = items.map(x => x.data);
+      populate();
+      applyFilters();
+      setSync("Google Sheet synchronized", "ok");
+    }
+
+    async function manualRefresh() {
+      await refreshFromGoogle();
+    }
+
+    function applyFilters() {
+      const vals = ["fTrain", "fRake", "fCoachType", "fLocation", "fStatus", "fActionBy"].map(id => document.getElementById(id).value);
+      const idx = [1, 2, 4, 6, 14, 13];
+      const q = clean(document.getElementById("searchBox").value).toLowerCase();
+
+      filteredData = allData.filter(row => {
+        for (let j = 0; j < idx.length; j++) {
+          if (vals[j] && clean(row[idx[j]]) !== vals[j]) return false;
+        }
+        if (q && !row.map(v => clean(v).toLowerCase()).join(" | ").includes(q)) return false;
+        return true;
+      });
+      updateDashboard();
+    }
+
+    function updateDashboard() {
+      const d = filteredData;
+      document.getElementById("kpiTotal").textContent = d.length;
+      document.getElementById("kpiTrains").textContent = new Set(d.map(r => clean(r[1])).filter(Boolean)).size;
+      document.getElementById("kpiRakes").textContent = new Set(d.map(r => clean(r[2])).filter(Boolean)).size;
+      const c = d.filter(r => closed(r[14])).length;
+      document.getElementById("kpiClosed").textContent = c;
+      document.getElementById("kpiOpen").textContent = d.length - c;
+
+      drawChart("statusChart", countBy(d, 14), ["#27ae60", "#f5ae18", "#e74c3c", "#348fd5", "#7a5af8"], status => {
+        openDetailModal(`Present Status: ${status}`, filteredData.filter(r => (clean(r[14]) || "Not Specified") === status));
+      });
+
+      drawChart("rakeChart", topN(countBy(d, 2), 10), ["#078b93"], rake => {
+        openDetailModal(`Rake: ${rake}`, filteredData.filter(r => (clean(r[2]) || "Not Specified") === rake));
+      });
+
+      drawChart("coachChart", topN(countBy(d, 4), 10), ["#348fd5"], coach => {
+        openDetailModal(`Coach Type: ${coach}`, filteredData.filter(r => (clean(r[4]) || "Not Specified") === coach));
+      });
+
+      drawChart("actionChart", topN(countBy(d, 13), 10), ["#7a5af8"], actionBy => {
+        openDetailModal(`Action Taken By: ${actionBy}`, filteredData.filter(r => (clean(r[13]) || "Not Specified") === actionBy));
+      });
+
+      const b = document.getElementById("body");
+      if (!d.length) {
+        b.innerHTML = '<tr><td colspan="16" class="empty">No records found.</td></tr>';
+        return;
+      }
+      b.innerHTML = d.map(row => `<tr>${row.slice(0, 16).map((v, i) => i === 14 ? `<td><span class="status">${esc(v) || "—"}</span></td>` : `<td>${esc(v) || "—"}</td>`).join("")}</tr>`).join("");
+    }
+
+    function openDetailModal(title, rows) {
+      detailData = rows || [];
+      document.getElementById("detailTitle").textContent = title;
+      document.getElementById("detailSearch").value = "";
+      document.getElementById("groupSummary").classList.add("hidden");
+      document.getElementById("groupSummary").innerHTML = "";
+      renderDetailRows();
+      document.getElementById("detailModal").classList.remove("hidden");
+    }
+
+    function closeDetailModal() {
+      document.getElementById("detailModal").classList.add("hidden");
+    }
+
+    function renderDetailRows() {
+      const q = clean(document.getElementById("detailSearch").value).toLowerCase();
+      const rows = detailData.filter(row => !q || row.map(v => clean(v).toLowerCase()).join(" | ").includes(q));
+      document.getElementById("detailCount").textContent = rows.length;
+      const body = document.getElementById("detailBody");
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="16" class="empty">No matching records found.</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(row => `<tr>${row.slice(0, 16).map((v, i) => i === 14 ? `<td><span class="status">${esc(v) || "—"}</span></td>` : `<td>${esc(v) || "—"}</td>`).join("")}</tr>`).join("");
+    }
+
+    function openGroupSummary(title, columnIndex) {
+      detailData = filteredData.slice();
+      document.getElementById("detailTitle").textContent = title;
+      document.getElementById("detailSearch").value = "";
+
+      const counts = countBy(filteredData, columnIndex);
+      const summary = document.getElementById("groupSummary");
+      summary.innerHTML = Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => `<button class="group-chip" onclick="openDetailModal('${esc(title.replace(" Summary", ""))}: ${esc(name)}', filteredData.filter(r => (clean(r[${columnIndex}]) || 'Not Specified') === '${esc(name)}'))"><span>${esc(name)}</span><b>${count}</b></button>`)
+        .join("");
+      summary.classList.remove("hidden");
+      renderDetailRows();
+      document.getElementById("detailModal").classList.remove("hidden");
+    }
+
+    function showOpenRecords() {
+      openDetailModal("Open / Pending Records", filteredData.filter(r => !closed(r[14])));
+    }
+
+    function showClosedRecords() {
+      openDetailModal("Closed / Completed Records", filteredData.filter(r => closed(r[14])));
+    }
+
+    document.getElementById("detailModal").addEventListener("click", e => {
+      if (e.target.id === "detailModal") closeDetailModal();
+    });
+
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape") closeDetailModal();
+    });
+
+    loadDashboard();
+    window.addEventListener("resize", updateDashboard);
+    setInterval(refreshFromGoogle, 300000);
+  </script>
+</body>
+</html>
