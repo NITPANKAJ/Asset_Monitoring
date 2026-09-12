@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>JSDG Data Entry</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<div class="header"><div class="header-row"><div><h1>Asset Data Entry</h1><p>Jheel Siding Coaching Depot</p></div><div class="spacer"></div><span class="user-badge" id="currentUser"></span><button class="btn secondary" onclick="logout()">Logout</button></div></div>
+<div class="nav"><a href="data-entry.html">Data Entry</a><a id="analysisLink" href="analysis.html">Analysis</a><div class="spacer"></div><button class="btn" onclick="openEntry()">+ Add New Record</button></div>
+<main class="main">
+  <h2 class="page-title">Data Entry Page</h2>
+  <div class="toolbar"><strong>Authorized Data Entry:</strong><button class="btn" onclick="openEntry()">+ Add New Record</button><button class="btn secondary" onclick="downloadBackup()">Download Backup</button><span class="notice">Only Data Entry/Admin accounts can access this page.</span></div>
+  <div class="table-title"><h2>Saved Records</h2><div class="spacer"></div><div class="search"><input id="searchBox" type="text" placeholder="Search..." oninput="render()"></div></div>
+  <div class="table-wrap"><table><thead><tr>
+    <th>SN</th><th>Train No</th><th>Rake No</th><th>Coach No</th><th>Coach Type</th><th>Coach No (2)</th><th>Location</th><th>POH Dt.</th><th>Return Date</th><th>IOH Dt.</th><th>Last Schedule Details</th><th>Cause of Defect</th><th>Action Taken</th><th>Action Taken By</th><th>Present Status</th><th>Remarks</th><th>Manage</th>
+  </tr></thead><tbody id="body"></tbody></table></div>
+</main>
+
+<div id="entryModal" class="modal-bg hidden"><div class="modal">
+<div class="modal-head"><h2 id="modalTitle">Add New Record</h2><div class="spacer"></div><button class="btn secondary" onclick="closeEntry()">Close</button></div>
+<div class="modal-body"><input type="hidden" id="editIndex"><div class="form-grid">
+<div class="field"><label>SN</label><input id="e0" type="text"></div>
+<div class="field"><label>Train No</label><input id="e1" type="text"></div>
+<div class="field"><label>Rake No</label><input id="e2" type="text"></div>
+<div class="field"><label>Coach No</label><input id="e3" type="text"></div>
+<div class="field"><label>Coach Type</label><input id="e4" type="text"></div>
+<div class="field"><label>Location</label><input id="e6" type="text"></div>
+<div class="field"><label>POH Dt.</label><input id="e7" type="date"></div>
+<div class="field"><label>Return Date</label><input id="e8" type="date"></div>
+<div class="field"><label>IOH Dt.</label><input id="e9" type="date"></div>
+<div class="field"><label>Action Taken By</label><input id="e13" type="text"></div>
+<div class="field"><label>Present Status</label><select id="e14"><option value="">Select</option><option>Open</option><option>Pending</option><option>Under Repair</option><option>Rectified</option><option>Completed</option><option>Closed</option><option>Working</option></select></div>
+<div class="field full"><label>Last Schedule Details</label><textarea id="e10"></textarea></div>
+<div class="field full"><label>Cause of Defect</label><textarea id="e11"></textarea></div>
+<div class="field full"><label>Action Taken</label><textarea id="e12"></textarea></div>
+<div class="field full"><label>Remarks</label><textarea id="e15"></textarea></div>
+</div><div class="modal-actions"><button class="btn secondary" onclick="clearForm()">Clear</button><button class="btn" onclick="saveEntry()">Save Record</button></div></div>
+</div></div>
+
+<script src="app.js"></script>
+<script>
+const user=requireRole(["entry","admin"]);
+if(user && user.role==="entry") document.getElementById("analysisLink").style.display="none";
+let allData=getData();
+
+function nextSN(){const nums=allData.map(r=>parseInt(r[0],10)).filter(Number.isFinite);return nums.length?Math.max(...nums)+1:1}
+function openEntry(){clearForm();document.getElementById("e0").value=nextSN();document.getElementById("modalTitle").textContent="Add New Record";document.getElementById("entryModal").classList.remove("hidden")}
+function closeEntry(){document.getElementById("entryModal").classList.add("hidden")}
+function clearForm(){document.getElementById("editIndex").value="";for(let i=0;i<16;i++){const e=document.getElementById("e"+i);if(e)e.value=""}}
+function saveEntry(){
+  const row=Array(16).fill("");
+  for(let i=0;i<16;i++){const e=document.getElementById("e"+i);if(e)row[i]=e.value}
+  if(!clean(row[1])&&!clean(row[2])&&!clean(row[3])){alert("Please enter at least Train No, Rake No or Coach No.");return}
+  const idx=document.getElementById("editIndex").value;
+  if(idx==="") allData.push(row); else allData[Number(idx)]=row;
+  setData(allData);closeEntry();render();
+}
+function editEntry(i){const r=allData[i];if(!r)return;document.getElementById("editIndex").value=i;for(let j=0;j<16;j++){const e=document.getElementById("e"+j);if(e)e.value=r[j]??""}document.getElementById("modalTitle").textContent="Edit Record";document.getElementById("entryModal").classList.remove("hidden")}
+function deleteEntry(i){if(confirm("Delete this record?")){allData.splice(i,1);setData(allData);render()}}
+function render(){
+  const q=clean(document.getElementById("searchBox").value).toLowerCase();
+  const data=allData.map((r,i)=>({r,i})).filter(x=>!q||x.r.map(v=>clean(v).toLowerCase()).join(" | ").includes(q));
+  const b=document.getElementById("body");
+  if(!data.length){b.innerHTML='<tr><td colspan="17" class="empty">No records found.</td></tr>';return}
+  b.innerHTML=data.map(x=>{
+    const cells=x.r.slice(0,16).map((v,i)=>i===14?`<td><span class="status">${esc(v)||"—"}</span></td>`:`<td>${esc(v)||"—"}</td>`).join("");
+    return `<tr>${cells}<td><button class="btn small" onclick="editEntry(${x.i})">Edit</button> <button class="btn danger small" onclick="deleteEntry(${x.i})">Delete</button></td></tr>`;
+  }).join("");
+}
+function downloadBackup(){
+  const blob=new Blob([JSON.stringify(allData,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="JSDG_Asset_Backup.json";a.click();URL.revokeObjectURL(a.href)
+}
+render();
+</script></body></html>
