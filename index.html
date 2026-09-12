@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>JSDG Asset Dashboard Login</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<section class="login-page">
+  <div class="login-card">
+    <h1>Asset Monitoring Dashboard</h1>
+    <p>Jheel Siding Coaching Depot</p>
+    <label>Login ID</label><input id="loginId" type="text" placeholder="Enter login ID">
+    <label>Password</label><input id="password" type="password" placeholder="Enter password">
+    <div id="err" class="login-error"></div>
+    <button class="btn" onclick="doLogin()">Login</button>
+    <div class="login-note">
+      <b>Data Entry User:</b> entry / entry123<br>
+      <b>Analysis User:</b> analysis / analysis123<br>
+      <b>Admin:</b> admin / admin123<br><br>
+      Data Entry user can add/edit/delete records only. Analysis user can view dashboard and reports only. Admin can open both pages.
+    </div>
+  </div>
+</section>
+<script src="app.js"></script>
+<script>
+function doLogin(){
+  const id=document.getElementById("loginId").value.trim();
+  const pw=document.getElementById("password").value;
+  const u=USERS[id];
+  if(!u || u.password!==pw){document.getElementById("err").textContent="Invalid login ID or password.";return}
+  sessionStorage.setItem("jsdg_user",JSON.stringify({username:id,role:u.role}));
+  if(u.role==="entry") location.href="data-entry.html";
+  else if(u.role==="analysis") location.href="analysis.html";
+  else location.href="analysis.html";
+}
+document.getElementById("password").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
+</script>
+</body></html>
